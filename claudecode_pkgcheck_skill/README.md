@@ -8,7 +8,7 @@
 
 > 📖 **詳細な解説・開発の背景**: 
 > 本ツールが解決するAI時代特有のセキュリティリスクや、AIエージェントに厳格な判定をさせるための「プロンプト設計の裏側」については、以下の記事で詳しく解説しています。
-> 👉 [AIが提案した pip install / npm install を信用していいのか？fail-closedで検証する「pkgcheck」](https://zenn.dev/articles/ac83e229177c2c/)
+> 👉 [AIが提案した pip install / npm install を信用していいのか？fail-closedで検証する「pkgcheck」](https://zenn.dev/dxclab/articles/ac83e229177c2c)
 
 ---
 
