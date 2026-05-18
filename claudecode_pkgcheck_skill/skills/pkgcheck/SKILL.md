@@ -1,9 +1,41 @@
-### name: pkgcheck
-description: Evidence-based security audit for Python/Node packages. Prevents typosquatting, hallucinated names, and supply chain risks.
+---
+name: pkgcheck
+description: Evidence-based security audit for Python/Node packages. Prevents typosquatting and supply chain risks.
 argument-hint: "[package-names...]"
-allowed-tools: Bash(curl -s *pypi.org*), Bash(curl -s *api.github.com*), Bash(curl -s *osv.dev*), Bash(curl -s -X POST *osv.dev*), Bash(curl -s *registry.npmjs.org*), Bash(python pkgcheck_*.py*), Bash(rm -f pkgcheck_*), Bash(GITHUB_PATH=*)
+allowed-tools:
+  - Bash(curl -s *pypi.org*)
+  - Bash(curl -s *api.github.com*)
+  - Bash(curl -s *osv.dev*)
+  - Bash(curl -s -X POST *osv.dev*)
+  - Bash(curl -s *registry.npmjs.org*)
+  - Bash(python pkgcheck_tmp/pkgcheck_*.py*)
+  - Bash(rm -f pkgcheck_tmp/pkgcheck_*)
+---
+
+# pkgcheck
+
+## Runtime Policy
+
+- `pip install` is prohibited
+- `npm install` is prohibited
+- Use Python standard library only
+- External network access must use `curl` only
+- Do not write files outside the temporary directory
+
+## Temporary File Policy
+
+```
+TMP_DIR="./pkgcheck_tmp"
+mkdir -p "$TMP_DIR"
+```
+
+Forbidden paths:
+- C:\Windows
+- C:\Windows\System32
+- user home directory root
 
 ---
+
 
 ## INPUT HANDLING
 
@@ -41,6 +73,16 @@ Avoid piping large JSON directly into `python -c` — shell quoting and
 encoding issues on Windows can corrupt the input. Use the file-based
 pattern below instead.
 
+## COMMAND EXECUTION STYLE
+
+To reduce security confirmation prompts, execute **one shell command per tool call**.
+
+- Do NOT chain commands with `&&`, `||`, `;`, or pipes
+- Do NOT use command substitution like `$()`
+- Do NOT use inline shell conditionals like `if ... fi`
+- Do NOT add debug separators such as `echo "---OSV---"`
+- Read the previous command output, then run the next command
+
 The tool MUST NOT affect logic.
 
 ---
@@ -53,7 +95,7 @@ Failure types:
 
 - 404 → HIGH RISK
 - network / parse failure → UNKNOWN
-- partial data → use "確認不可"
+- partial data → use "NOT_CONFIRMED"
 
 ---
 
@@ -61,10 +103,10 @@ Failure types:
 
 ### SETUP — write helper scripts (once per pkgcheck invocation)
 
-Use the **Write tool** to create these two scripts before fetching packages.
-Place them in the current working directory.
+Use the **Write tool** to create these helper scripts before fetching packages.
+Place them in `pkgcheck_tmp/` under the current working directory.
 
-**pkgcheck_registry.py**
+**pkgcheck_tmp/pkgcheck_registry.py**
 ```python
 import json, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -99,7 +141,7 @@ else:
     print('last_release:', dates[-1][:10] if dates else 'unknown')
 ```
 
-**pkgcheck_osv.py**
+**pkgcheck_tmp/pkgcheck_osv.py**
 ```python
 import json, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -113,7 +155,7 @@ for v in vulns:
     print(' -', v['id'], '|', v.get('summary', '')[:80], '| severity:', sev, '| aliases:', aliases)
 ```
 
-**pkgcheck_github.py**
+**pkgcheck_tmp/pkgcheck_github.py**
 ```python
 import json, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -129,7 +171,7 @@ else:
     print('owner_type:', d.get('owner', {}).get('type', ''))
 ```
 
-**pkgcheck_gh_path.py**
+**pkgcheck_tmp/pkgcheck_gh_path.py**
 ```python
 import json, re, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -154,16 +196,18 @@ several MB for active packages. Do NOT pass the URL to HTML extraction
 tools — they will truncate the response.
 
 ```bash
-curl -s "https://pypi.org/pypi/<name>/json" -o pkgcheck_pkg.json && python pkgcheck_registry.py pkgcheck_pkg.json pypi
+curl -s "https://pypi.org/pypi/<name>/json" -o pkgcheck_tmp/pkgcheck_pkg.json
+python pkgcheck_tmp/pkgcheck_registry.py pkgcheck_tmp/pkgcheck_pkg.json pypi
 ```
 
 Fallback (Bash unavailable): fetch https://pypi.org/pypi/<name>/json via
-Tavily Extract — accept partial data; mark truncated fields as 確認不可.
+Tavily Extract — accept partial data; mark truncated fields as NOT_CONFIRMED.
 
 ### PyPI — Security (OSV REST API)
 
 ```bash
-curl -s -X POST "https://api.osv.dev/v1/query" -H "Content-Type: application/json" -d "{\"package\": {\"name\": \"<name>\", \"ecosystem\": \"PyPI\"}}" -o pkgcheck_osv.json && python pkgcheck_osv.py pkgcheck_osv.json
+curl -s -X POST "https://api.osv.dev/v1/query" -H "Content-Type: application/json" -d "{\"package\": {\"name\": \"<name>\", \"ecosystem\": \"PyPI\"}}" -o pkgcheck_tmp/pkgcheck_osv.json
+python pkgcheck_tmp/pkgcheck_osv.py pkgcheck_tmp/pkgcheck_osv.json
 ```
 
 Fallback: https://osv.dev/list?ecosystem=PyPI&q=<name> via Tavily Extract.
@@ -171,42 +215,44 @@ Fallback: https://osv.dev/list?ecosystem=PyPI&q=<name> via Tavily Extract.
 ### npm — Registry
 
 ```bash
-curl -s "https://registry.npmjs.org/<name>" -o pkgcheck_pkg.json && python pkgcheck_registry.py pkgcheck_pkg.json npm
+curl -s "https://registry.npmjs.org/<name>" -o pkgcheck_tmp/pkgcheck_pkg.json
+python pkgcheck_tmp/pkgcheck_registry.py pkgcheck_tmp/pkgcheck_pkg.json npm
 ```
 
 ### npm — Security (OSV REST API)
 
 ```bash
-curl -s -X POST "https://api.osv.dev/v1/query" -H "Content-Type: application/json" -d "{\"package\": {\"name\": \"<name>\", \"ecosystem\": \"npm\"}}" -o pkgcheck_osv.json && python pkgcheck_osv.py pkgcheck_osv.json
+curl -s -X POST "https://api.osv.dev/v1/query" -H "Content-Type: application/json" -d "{\"package\": {\"name\": \"<name>\", \"ecosystem\": \"npm\"}}" -o pkgcheck_tmp/pkgcheck_osv.json
+python pkgcheck_tmp/pkgcheck_osv.py pkgcheck_tmp/pkgcheck_osv.json
 ```
 
 Scoped packages must be URL encoded (@scope%2Fpkg)
 
 ### GitHub — Repository Metadata (npm and PyPI)
 
-Run this **after** the registry fetch for each package, while `pkgcheck_pkg.json`
+Run this **after** the registry fetch for each package, while `pkgcheck_tmp/pkgcheck_pkg.json`
 is still present. Extracts the GitHub owner/repo from the registry data and
 fetches stars, last push date, archived status, and owner identity.
 
 NOTE: Do NOT use inline `python -c` with multiline strings — shell quoting
-on Windows corrupts them. Use the `pkgcheck_gh_path.py` script file instead.
+on Windows corrupts them. Use the `pkgcheck_tmp/pkgcheck_gh_path.py` script file instead.
 
 ```bash
-GITHUB_PATH=$(python pkgcheck_gh_path.py pkgcheck_pkg.json)
-if [ -n "$GITHUB_PATH" ]; then
-  curl -s "https://api.github.com/repos/$GITHUB_PATH" -o pkgcheck_gh.json && python pkgcheck_github.py pkgcheck_gh.json
-else
-  echo "stars: 確認不可（GitHubリポジトリURL未登録）"
-  echo "pushed_at: 確認不可"
-  echo "archived: false"
-fi
+python pkgcheck_tmp/pkgcheck_gh_path.py pkgcheck_tmp/pkgcheck_pkg.json
+curl -s "https://api.github.com/repos/<owner>/<repo>" -o pkgcheck_tmp/pkgcheck_gh.json
+python pkgcheck_tmp/pkgcheck_github.py pkgcheck_tmp/pkgcheck_gh.json
 ```
 
+If `pkgcheck_tmp/pkgcheck_gh_path.py` outputs an empty string, skip the GitHub API call and set:
+- `stars: NOT_CONFIRMED (GitHub repository URL missing)`
+- `pushed_at: NOT_CONFIRMED`
+- `archived: false`
+
 Error handling:
-- `github_error: Not Found` → リポジトリが削除済み。追加の危険シグナルとして記録すること
-- `github_error: API rate limit exceeded` → stars と pushed_at を 確認不可（GitHub APIレート制限）とする。
-  `GITHUB_TOKEN` 環境変数を設定すれば 5,000 req/hour に拡張可能:
-  `curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_PATH" -o pkgcheck_gh.json`
+- `github_error: Not Found` → repository is missing or deleted; record as an additional risk signal
+- `github_error: API rate limit exceeded` → set `stars` and `pushed_at` to `NOT_CONFIRMED` (GitHub API rate limit).
+  Set `GITHUB_TOKEN` to increase the GitHub API limit to 5,000 req/hour:
+  `curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/<owner>/<repo>" -o pkgcheck_tmp/pkgcheck_gh.json`
 
 Output fields:
 - `stars` — stargazers_count
@@ -218,7 +264,7 @@ Output fields:
 ### CLEANUP — after all packages are checked
 
 ```bash
-rm -f pkgcheck_pkg.json pkgcheck_osv.json pkgcheck_gh.json pkgcheck_registry.py pkgcheck_osv.py pkgcheck_github.py pkgcheck_gh_path.py
+rm -f pkgcheck_tmp/pkgcheck_pkg.json pkgcheck_tmp/pkgcheck_osv.json pkgcheck_tmp/pkgcheck_gh.json pkgcheck_tmp/pkgcheck_registry.py pkgcheck_tmp/pkgcheck_osv.py pkgcheck_tmp/pkgcheck_github.py pkgcheck_tmp/pkgcheck_gh_path.py
 ```
 
 ---
@@ -258,11 +304,11 @@ DO NOT display API endpoints.
 
 Format:
 
-<value>（取得日: YYYY-MM-DD、出典: source）
+<value> (retrieved_on: YYYY-MM-DD, source: source)
 
 If unavailable:
 
-確認不可（理由）
+NOT_CONFIRMED (reason)
 
 No guessing.
 
@@ -321,7 +367,7 @@ At least one:
 
 If unavailable:
 
-確認不可
+NOT_CONFIRMED
 
 ---
 
@@ -398,20 +444,20 @@ insufficient evidence
 ソースリポジトリ:
  URL: <GitHub URL>
  オーナー: <owner_login>（<owner_type>）
- スター数: <value or 確認不可>（取得日: YYYY-MM-DD、出典: GitHub API）
- 最終push日: <pushed_at or 確認不可>
+ スター数: <value or NOT_CONFIRMED>（取得日: YYYY-MM-DD、出典: GitHub API）
+ 最終push日: <pushed_at or NOT_CONFIRMED>
  アーカイブ済み: true / false
 
 メンテナンス状況:
  ACTIVE / MODERATE / LOW / ABANDONED
 
 採用実績:
- ダウンロード: <value or 確認不可>
- Dependents: <value or 確認不可>
+ ダウンロード: <value or NOT_CONFIRMED>
+ Dependents: <value or NOT_CONFIRMED>
 
 セキュリティ:
  OSV: <URL>
- CVEs: <数 or 確認されず or UNKNOWN>
+ CVEs: <count or NOT_CONFIRMED or UNKNOWN>
 
 リスクレベル:
  LOW RISK / CAUTION / HIGH RISK / UNKNOWN
