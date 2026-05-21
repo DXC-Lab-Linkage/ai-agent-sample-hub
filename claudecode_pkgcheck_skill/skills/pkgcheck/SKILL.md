@@ -41,9 +41,41 @@ Forbidden paths:
 
 Packages to check: $ARGUMENTS
 
-If empty, output EXACTLY:
+If `$ARGUMENTS` is empty, infer package candidates from recent conversation context and suggest them instead of running checks.
 
-pkgcheck コマンドが実行されましたが、パッケージ名が指定されていません。
+Inference scope (priority order):
+1. latest user message
+2. previous 1-3 user messages
+3. recent assistant messages only when they quote user-provided package names
+
+Use strong signals only:
+- package names in backticks/quotes
+- install commands (`pip install`, `uv add`, `npm i`, `npm install`, `pnpm add`, `yarn add`)
+- dependency snippets from `requirements.txt`, `pyproject.toml`, `package.json`
+
+Filtering rules:
+- remove version suffixes (`==1.2.3`, `@1.2.3`) and CLI flags (`-U`, `--dev`)
+- ignore file paths, URLs, and generic nouns
+- deduplicate while preserving recency order
+- suggest up to 5 package names
+
+If candidates exist, output in Japanese:
+
+pkgcheck コマンドが引数なしで実行されました。
+直近の会話文脈から候補を推測しました:
+- <candidate1>
+- <candidate2>
+
+候補が正しければ、次を実行してください:
+`/pkgcheck <candidate1> <candidate2>`
+
+候補が違う場合は、確認したいパッケージ名を指定して再実行してください。
+
+After this suggestion response, STOP. Do not fetch registry/security data.
+
+If no reliable candidate exists, output EXACTLY:
+
+pkgcheck コマンドが引数なしで実行されましたが、会話文脈から候補を特定できませんでした。
 パッケージ名を指定してください。
 
 ---
