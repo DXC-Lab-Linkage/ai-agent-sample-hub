@@ -95,7 +95,10 @@ AIが提案してきたコマンドを実行する前に、そのままパッケ
 /pkgcheck --npm express
 /pkgcheck --pip requests
 ```
+---
+## /pkgcheck の引数について
 
+`/pkgcheck` を引数なしで実行した場合、直近の会話文脈からパッケージ候補を推測して提案します。  
 ---
 
 ## 出力例
